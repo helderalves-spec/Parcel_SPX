@@ -1,17 +1,3 @@
-
-
-1 de 793
-(sem assunto)
-Caixa de entrada
-
-Helder Goncalves Alves <helder.alves@shopee.com>
-Anexos
-07:53 (há 0 minuto)
-para mim
-
-
- 1 anexo
-  •  Verificados pelo Gmail
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -499,11 +485,9 @@ para mim
         let base2Database = [];
         let scannedItemsList = [];
 
-        // Function to announce messages via Text-to-Speech
         function emitVoiceAlert(messageText) {
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
-                
                 let utterance = new SpeechSynthesisUtterance(messageText);
                 utterance.lang = 'pt-BR';
                 utterance.rate = 1.0; 
@@ -512,7 +496,6 @@ para mim
             }
         }
 
-        // Troca de abas
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -528,8 +511,15 @@ para mim
             }
         }
 
-        // Função para split de linha CSV respeitando aspas
-        function splitCSVLine(line) {
+        // NOVO: Divisor inteligente de colunas que aceita tanto Vírgula quanto Ponto e Vírgula automaticamente
+        function splitCSVLine(line, separator = null) {
+            if (!separator) {
+                // Se não informado, tenta adivinhar o melhor separador da linha
+                const countComma = (line.match(/,/g) || []).length;
+                const countSemicolon = (line.match(/;/g) || []).length;
+                separator = countSemicolon > countComma ? ';' : ',';
+            }
+
             let result = [];
             let current = '';
             let inQuotes = false;
@@ -538,22 +528,28 @@ para mim
                 let char = line[i];
                 if (char === '"' || char === "'") {
                     inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    result.push(current.trim());
+                } else if (char === separator && !inQuotes) {
+                    result.push(current.trim().replace(/^["']|["']$/g, ''));
                     current = '';
                 } else {
                     current += char;
                 }
             }
-            result.push(current.trim());
+            result.push(current.trim().replace(/^["']|["']$/g, ''));
             return result;
         }
 
-        // Parse da Base 1
         function parseBase1(text) {
             const lines = text.split(/\r?\n/);
             if (lines.length === 0) return [];
-            const headers = splitCSVLine(lines[0]).map(h => h.replace(/['"]/g, '').trim().toLowerCase());
+            
+            // Detecta separador do cabeçalho
+            const firstLine = lines[0];
+            const countComma = (firstLine.match(/,/g) || []).length;
+            const countSemicolon = (firstLine.match(/;/g) || []).length;
+            const sep = countSemicolon > countComma ? ';' : ',';
+
+            const headers = splitCSVLine(firstLine, sep).map(h => h.toLowerCase().trim());
             
             const trackingIdx = headers.indexOf('sls tracking number');
             const statusIdx = headers.indexOf('status');
@@ -565,8 +561,7 @@ para mim
             for (let i = 1; i < lines.length; i++) {
                 let currentLine = lines[i].trim();
                 if (!currentLine) continue;
-                let columns = splitCSVLine(currentLine);
-                if (columns.length < 2) continue;
+                let columns = splitCSVLine(currentLine, sep);
 
                 let trackingCode = columns[trackingIdx >= 0 ? trackingIdx : 1] || '';
                 let baseStatus = columns[statusIdx >= 0 ? statusIdx : 22] || 'N/A';
@@ -574,14 +569,13 @@ para mim
                 let destHub = columns[destinationHubIdx >= 0 ? destinationHubIdx : 44] || '';
                 let onholdQty = columns[onholdTimesIdx >= 0 ? onholdTimesIdx : 29] || '0';
 
-                trackingCode = trackingCode.replace(/['"]/g, '').trim();
                 if(trackingCode) {
                     results.push({
                         trackingNumber: trackingCode,
-                        statusOriginal: baseStatus.replace(/['"]/g, '').trim(),
-                        station: station.replace(/['"]/g, '').trim(),
-                        destinationHub: destHub.replace(/['"]/g, '').trim(),
-                        onhold: onholdQty.replace(/['"]/g, '').trim(),
+                        statusOriginal: baseStatus,
+                        station: station,
+                        destinationHub: destHub,
+                        onhold: onholdQty,
                         origin: 'Base 1'
                     });
                 }
@@ -589,11 +583,18 @@ para mim
             return results;
         }
 
-        // Parse da Base 2
         function parseBase2(text) {
-            const lines = text.split(/\r?\n/);
+            // Corrige possíveis quebras de linha erradas dentro de aspas geradas pelo Excel
+            let normalizedText = text.replace(/\r?\n/g, '\n');
+            const lines = normalizedText.split('\n');
             if (lines.length === 0) return [];
-            const headers = splitCSVLine(lines[0]).map(h => h.replace(/['"]/g, '').trim().toLowerCase());
+            
+            const firstLine = lines[0];
+            const countComma = (firstLine.match(/,/g) || []).length;
+            const countSemicolon = (firstLine.match(/;/g) || []).length;
+            const sep = countSemicolon > countComma ? ';' : ',';
+
+            const headers = splitCSVLine(firstLine, sep).map(h => h.toLowerCase().trim());
             
             const trackingIdx = headers.indexOf('spx tracking number');
             const orderStatusIdx = headers.indexOf('order status');
@@ -603,21 +604,19 @@ para mim
             for (let i = 1; i < lines.length; i++) {
                 let currentLine = lines[i].trim();
                 if (!currentLine) continue;
-                let columns = splitCSVLine(currentLine);
-                if (columns.length < 1) continue;
-
+                
+                let columns = splitCSVLine(currentLine, sep);
                 let trackingCode = columns[trackingIdx >= 0 ? trackingIdx : 0] || '';
                 let orderStatus = columns[orderStatusIdx >= 0 ? orderStatusIdx : 1] || 'N/A';
                 let sellerName = columns[sellerNameIdx >= 0 ? sellerNameIdx : 9] || '-';
 
-                trackingCode = trackingCode.replace(/['"]/g, '').trim();
-                if(trackingCode) {
+                if(trackingCode && trackingCode.toLowerCase() !== 'spx tracking number') {
                     results.push({
                         trackingNumber: trackingCode,
-                        statusOriginal: orderStatus.replace(/['"]/g, '').trim(),
+                        statusOriginal: orderStatus,
                         station: 'N/A',
                         destinationHub: 'N/A',
-                        onhold: 'Vendedor: ' + sellerName.replace(/['"]/g, '').trim(),
+                        onhold: 'Vendedor: ' + sellerName,
                         origin: 'Base 2'
                     });
                 }
@@ -625,7 +624,6 @@ para mim
             return results;
         }
 
-        // Evento de seleção de arquivo
         function handleFileSelect(event, baseNum) {
             const file = event.target.files[0];
             if (!file) return;
@@ -662,7 +660,6 @@ para mim
             reader.readAsText(file, 'UTF-8');
         }
 
-        // Atualização dos componentes visuais do Painel
         function refreshDashboardUI() {
             const tbody = document.getElementById('live-table-body');
             
@@ -727,7 +724,6 @@ para mim
             circle.style.strokeDashoffset = offset;
         }
 
-        // Execução da bipagem com prioridade para a Base 1
         function executeBarcodeBeep() {
             const inputField = document.getElementById('main-barcode-scanner');
             const codeToFind = inputField.value.trim();
@@ -738,7 +734,6 @@ para mim
             topAlertEl.className = 'top-alert-bar';
             topAlertEl.style.display = 'block';
 
-            // Verifica duplicidade local nos itens já bipados
             const alreadyScanned = scannedItemsList.find(item => item.trackingNumber === codeToFind);
             if (alreadyScanned) {
                 topAlertEl.classList.add('alert-orange');
@@ -748,7 +743,6 @@ para mim
                 return;
             }
 
-            // PRIORIDADE DE BUSCA: Procura primeiro na Base 1, depois Base 2
             let matchedItem = base1Database.find(item => item.trackingNumber === codeToFind);
             let foundInBase1 = true;
 
@@ -763,16 +757,13 @@ para mim
                 let alertColor = 'alert-green';
                 let messageText = '';
 
-                // CORREÇÃO: Força Área de Tratativa imediata se o status NÃO for lmhub_received
                 if (!statusLower.includes("lmhub_received")) {
                     isTratativa = true;
                 }
 
                 if (foundInBase1) {
-                    // LÓGICA DA BASE 1 (Fluxo Forward)
                     const destHubContent = matchedItem.destinationHub ? matchedItem.destinationHub.trim() : "";
                     const destHubLower = destHubContent.toLowerCase();
-
                     let isForeignHub = false;
 
                     const allowedCities = ["uberaba", "monte carmelo", "catalão", "catalao"];
@@ -783,9 +774,8 @@ para mim
                         }
                     }
 
-                    // Se for de outro Hub ou o status exigir tratativa, vira Alerta Laranja (Amarelo)
                     if (isForeignHub || isTratativa) {
-                        isTratativa = true; // Garante a flag marcada
+                        isTratativa = true;
                         alertColor = 'alert-orange';
                         emitVoiceAlert("Atenção: Área de Tratativa");
                         
@@ -798,7 +788,6 @@ para mim
                         messageText = `✅ BIPAGEM OK (Base 1)! BR: ${codeToFind} | DESTINO PARCEL ACEITO`;
                     }
                 } else {
-                    // LÓGICA DA BASE 2 (Fluxo Receive Task)
                     if (isTratativa) {
                         alertColor = 'alert-orange';
                         messageText = `🍊 STATUS RETIDO / ADVERTÊNCIA NA BASE 2 (${matchedItem.statusOriginal})! BR: ${codeToFind} -> ENVIAR PARA TRATATIVA`;
@@ -824,7 +813,6 @@ para mim
                 });
 
             } else {
-                // NÃO ENCONTRADO EM NENHUMA DAS DUAS BASES
                 topAlertEl.classList.add('alert-red');
                 topAlertEl.innerText = `❌ ALERTA! CÓDIGO BR ${codeToFind} NÃO ENCONTRADO EM NENHUMA BASE.`;
                 emitVoiceAlert("Não encontrado, área de tratativa");
@@ -845,21 +833,19 @@ para mim
             refreshDashboardUI();
         }
 
-        // Evento para capturar o "Enter" do leitor de códigos
         document.getElementById('main-barcode-scanner').addEventListener('keydown', function(event) {
             if (event.key === 'Enter') {
                 executeBarcodeBeep();
             }
         });
 
-        // Função de Exportação para arquivo Excel (.CSV legível pelo Excel em PT-BR)
         function exportToExcelXLSX() {
             if (scannedItemsList.length === 0) {
                 alert("Nenhum item bipado para exportação.");
                 return;
             }
 
-            let csvContent = "\uFEFF"; // UTF-8 BOM para abrir sem erros de caracteres
+            let csvContent = "\uFEFF"; 
             csvContent += "SPX Tracking Number,Origem da Base,Status Original,Filtro Próxima Ação,Destino Detectado,Detalhes / Seller,Encontrado em Base\n";
 
             scannedItemsList.forEach(item => {
